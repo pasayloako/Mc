@@ -23,67 +23,178 @@
         button { margin-left: 10px; padding: 12px 24px; background: #667eea; color: white; border: none; border-radius: 25px; cursor: pointer; font-weight: bold; transition: background 0.3s; }
         button:hover:not(:disabled) { background: #5a67d8; }
         button:disabled { background: #a0aec0; cursor: not-allowed; }
+        .typing-indicator { padding: 12px 16px; background: white; border-radius: 18px; border: 1px solid #e2e8f0; display: inline-block; }
+        .typing-indicator span { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #a0aec0; margin: 0 2px; animation: typing 1.4s infinite; }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typing {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+            30% { transform: translateY(-10px); opacity: 1; }
+        }
     </style>
 </head>
 <body>
     <div class="chat-container">
-        <div class="header">Bible AI - Ask about the Bible & God</div>
+        <div class="header">🙏 Bible AI - Ask about the Bible & God</div>
         <div class="messages" id="messages">
             <div class="message bot">
-                <div class="message-content">Hello! Ask about verses or God. E.g., "John 3:16 meaning?"</div>
+                <div class="message-content">Hello! Ask about verses or God. E.g., "What does John 3:16 mean?" or "Tell me about Psalm 23"</div>
             </div>
         </div>
         <div class="input-area">
-            <input type="text" id="prompt" placeholder="Type here..." maxlength="500">
-            <button id="sendBtn" onclick="sendMessage()">Send</button>
+            <input type="text" id="prompt" placeholder="Type your question here..." maxlength="500">
+            <button id="sendBtn">Send</button>
         </div>
     </div>
 
     <script>
-        const API_URL = '/api/chat';  // Secure proxy - no key exposed!
-
-        const messagesEl = document.getElementById('messages')!;
-        const promptEl = document.getElementById('prompt') as HTMLInputElement;
-        const sendBtn = document.getElementById('sendBtn') as HTMLButtonElement;
-
-        promptEl.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
-
-        function addMessage(content: string, isUser = false) {
+        // IMPORTANT: Replace this with your actual API endpoint
+        // For testing without a backend, set USE_MOCK_API to true
+        const USE_MOCK_API = true;  // Set to false when you have a real backend
+        const API_URL = '/api/chat';  // Your backend API endpoint
+        
+        // Get DOM elements
+        const messagesEl = document.getElementById('messages');
+        const promptEl = document.getElementById('prompt');
+        const sendBtn = document.getElementById('sendBtn');
+        
+        // Check if required elements exist
+        if (!messagesEl || !promptEl || !sendBtn) {
+            console.error('Required DOM elements not found!');
+            throw new Error('Failed to initialize chat: Required elements missing');
+        }
+        
+        // Mock responses for testing without a backend
+        const mockResponses = {
+            default: "That's a great question about the Bible! While I'm in demo mode, I'd recommend consulting your local pastor or Bible study resources. In a production environment, this would connect to a real Bible AI API.",
+            "john 3:16": "John 3:16 is one of the most famous verses: 'For God so loved the world that he gave his one and only Son, that whoever believes in him shall not perish but have eternal life.' This verse emphasizes God's love and the gift of salvation through faith in Jesus Christ.",
+            "psalm 23": "Psalm 23 is a beloved psalm about God's shepherding care: 'The Lord is my shepherd; I shall not want...' It speaks of God's guidance, protection, and provision throughout life's journey.",
+            "love": "The Bible teaches that God is love (1 John 4:8). Jesus commanded his followers to love God with all their heart and to love their neighbor as themselves (Mark 12:30-31)."
+        };
+        
+        function getMockResponse(question) {
+            const lowerQuestion = question.toLowerCase();
+            if (lowerQuestion.includes('john 3:16') || lowerQuestion.includes('john 3')) {
+                return mockResponses["john 3:16"];
+            } else if (lowerQuestion.includes('psalm 23')) {
+                return mockResponses["psalm 23"];
+            } else if (lowerQuestion.includes('love')) {
+                return mockResponses.love;
+            } else {
+                return mockResponses.default;
+            }
+        }
+        
+        // Add a message to the chat
+        function addMessage(content, isUser = false) {
             const div = document.createElement('div');
             div.className = `message ${isUser ? 'user' : 'bot'}`;
-            div.innerHTML = `<div class="message-content">${content.replace(/<script\b[^<]*(?:(?!</script>)<[^<]*)*</script>/gi, '')}</div>`;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            
+            // Safe text insertion (prevents XSS)
+            contentDiv.textContent = content;
+            
+            div.appendChild(contentDiv);
             messagesEl.appendChild(div);
             messagesEl.scrollTop = messagesEl.scrollHeight;
         }
-
+        
+        // Show typing indicator
+        function showTypingIndicator() {
+            const div = document.createElement('div');
+            div.className = 'message bot';
+            div.id = 'typing-indicator';
+            
+            const indicatorDiv = document.createElement('div');
+            indicatorDiv.className = 'typing-indicator';
+            indicatorDiv.innerHTML = '<span></span><span></span><span></span>';
+            
+            div.appendChild(indicatorDiv);
+            messagesEl.appendChild(div);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+        
+        // Remove typing indicator
+        function removeTypingIndicator() {
+            const indicator = document.getElementById('typing-indicator');
+            if (indicator) {
+                indicator.remove();
+            }
+        }
+        
+        // Send message to API
         async function sendMessage() {
             const prompt = promptEl.value.trim();
             if (!prompt) return;
-
+            
+            // Add user message to chat
             addMessage(prompt, true);
+            
+            // Clear input and disable button
             promptEl.value = '';
             sendBtn.disabled = true;
             sendBtn.textContent = 'Sending...';
-
+            
+            // Show typing indicator
+            showTypingIndicator();
+            
             try {
-                const res = await fetch(API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt })
-                });
-
-                if (!res.ok) throw new Error('API error');
-
-                const data = await res.json();
-                addMessage(data.reply || 'No reply.');
+                let reply;
+                
+                if (USE_MOCK_API) {
+                    // Simulate API delay
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    reply = getMockResponse(prompt);
+                } else {
+                    // Real API call
+                    const response = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ prompt: prompt })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`API Error: ${response.status} ${response.statusText}`);
+                    }
+                    
+                    const data = await response.json();
+                    reply = data.reply || data.message || data.response || 'No reply received from the server.';
+                }
+                
+                // Remove typing indicator and add bot response
+                removeTypingIndicator();
+                addMessage(reply, false);
+                
             } catch (error) {
-                console.error(error);
-                addMessage('Error: Check console.');
+                console.error('Error details:', error);
+                removeTypingIndicator();
+                addMessage(`❌ Error: ${error.message}. Please check if the backend server is running at ${API_URL}`, false);
             } finally {
+                // Re-enable button and focus input
                 sendBtn.disabled = false;
                 sendBtn.textContent = 'Send';
                 promptEl.focus();
             }
+        }
+        
+        // Event listeners
+        sendBtn.addEventListener('click', sendMessage);
+        
+        promptEl.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !sendBtn.disabled) {
+                sendMessage();
+            }
+        });
+        
+        // Optional: Add a note about the API configuration in console
+        if (USE_MOCK_API) {
+            console.log('⚠️ Using mock API responses. Set USE_MOCK_API = false and configure your backend to use real API.');
+        } else {
+            console.log(`🔌 Attempting to connect to API at: ${API_URL}`);
         }
     </script>
 </body>
