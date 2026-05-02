@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "ts-node server.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
-    "postinstall": "npm install --only=dev && npm run build"
+    "start": "node dist/server.js"
   },
   "engines": {
     "node": "20.x"
