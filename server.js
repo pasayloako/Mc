@@ -9,41 +9,116 @@ import path from 'path';
 dotenv.config();
 
 const app = express();
-const PORT = (process.env.PORT || 3000) as number;
+const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(helmet());
+// Security & parsing middleware
+app.use(helmet({
+  contentSecurityPolicy: false  // Disable if CSP blocks frontend JS
+}));
 app.use(express.json({ limit: '1mb' }));
-app.use(cors({ origin: process.env.NODE_ENV === 'production' ? 'https://yourdomain.com' : 'http://localhost:3000' }));
-app.use(express.static(path.join(__dirname, 'public'))); // Serve public/index.html
+app.use(express.urlencoded({ extended: true }));
 
-// Rate limiting
-const limiter = rateLimit({ windowMs: 60 * 1000, max: 50 });
-app.use('/api/', limiter);
+// CORS - flexible for dev/prod
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production' 
+    ? process.env.FRONTEND_URL || 'https://yourapp.onrender.com'
+    : 'http://localhost:3000',
+  credentials: true
+};
+app.use(cors(corsOptions));
 
-// Secure /api/chat proxy
-app.post('/api/chat', async (req: Request, res: Response) => {
+// Rate limiting: 100/min IP, tighter for API
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  message: { error: 'Rate limit hit. Try again in 1 min.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/', apiLimiter);
+
+// Static files (public/index.html)
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Health check
+app.get('/health', (req: Response) => res.status(200).json({ status: 'OK' }));
+
+// Secure Bible AI proxy - frontend calls /api/chat
+app.post('/api/chat', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { prompt } = req.body;
-    if (!prompt || typeof prompt !== 'string' || prompt.length > 500) {
-      return res.status(400).json({ error: 'Valid prompt required' });
+    
+    // Strict validation
+    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0 || prompt.length > 1000) {
+      return res.status(400).json({ error: 'Valid prompt required (1-1000 chars)' });
     }
 
-    const bibleAiUrl = process.env.BIBLE_AI_URL!;
-    const apiKey = process.env.API_KEY!;
+    const cleanPrompt = prompt.trim();
+    const bibleAiUrl = process.env.BIBLE_AI_URL;
+    const apiKey = process.env.API_KEY;
 
-    const response = await axios.post(bibleAiUrl, { prompt }, {
-      headers: { 'apikey': apiKey },
-      timeout: 10000,
+    if (!bibleAiUrl || !apiKey) {
+      return res.status(500).json({ error: 'Service config error' });
+    }
+
+    // Proxy with timeout & error handling
+    const response = await axios.post(bibleAiUrl, { prompt: cleanPrompt }, {
+      headers: { 
+        'Content-Type': 'application/json',
+        'apikey': apiKey 
+      },
+      timeout: 15000,  // 15s for AI responses
+      validateStatus: () => true  // Handle all status codes
     });
 
-    res.json({ reply: response.data.response || response.data.reply || response.data });
+    // Extract reply safely
+    const reply = response.data?.response || 
+                  response.data?.reply || 
+                  response.data?.message || 
+                  response.data || 
+                  'Bible AI response unavailable.';
+
+    res.json({ 
+      success: true, 
+      reply: String(reply).substring(0, 4000)  // Cap response size
+    });
+
   } catch (error: any) {
-    console.error('Error:', error.message);
-    res.status(500).json({ error: 'Service error' });
+    console.error('Proxy error:', error.message);
+    
+    if (axios.isAxiosError(error)) {
+      if (error.code === 'ECONNABORTED') {
+        return res.status(408).json({ error: 'Request timeout' });
+      }
+      return res.status(error.response?.status || 502).json({ 
+        error: 'Bible AI service error' 
+      });
+    }
+    
+    res.status(500).json({ error: 'Internal error' });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server on http://localhost:${PORT}`);
+// 404 handler
+app.use('*', (req: Request, res: Response) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+// Global error handler
+app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
+  console.error(error);
+  res.status(500).json({ error: 'Server error' });
+});
+
+const server = app.listen(PORT, () => {
+  console.log(`Bible AI Backend running on port ${PORT}`);
+  console.log(`Env: ${process.env.NODE_ENV || 'development'}`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received');
+  server.close(() => {
+    console.log('Process terminated');
+  });
 });
