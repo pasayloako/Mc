@@ -11,6 +11,9 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Fix __dirname (important for TypeScript / ES modules)
+const __dirnameResolved = path.resolve();
+
 // Middleware
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: '1mb' }));
@@ -25,10 +28,15 @@ const apiLimiter = rateLimit({
 });
 app.use('/api/', apiLimiter);
 
-// Static files
-app.use(express.static(path.join(__dirname, 'public')));
+// ✅ Serve static files
+app.use(express.static(path.join(__dirnameResolved, 'public')));
 
-// Health check endpoint (Fixed: added res parameter)
+// ✅ Root route (THIS WAS MISSING)
+app.get('/', (req: Request, res: Response) => {
+  res.sendFile(path.join(__dirnameResolved, 'public', 'index.html'));
+});
+
+// Health check
 app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'OK' });
 });
@@ -37,6 +45,7 @@ app.get('/health', (req: Request, res: Response) => {
 app.post('/api/chat', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { prompt } = req.body;
+
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ error: 'Valid prompt required' });
     }
@@ -48,12 +57,22 @@ app.post('/api/chat', async (req: Request, res: Response, next: NextFunction) =>
       return res.status(500).json({ error: 'Missing environment configuration' });
     }
 
-    const response = await axios.post(bibleAiUrl, { prompt }, {
-      headers: { 'apikey': apiKey },
-      timeout: 15000
+    const response = await axios.post(
+      bibleAiUrl,
+      { prompt },
+      {
+        headers: { apikey: apiKey },
+        timeout: 15000
+      }
+    );
+
+    res.json({
+      reply:
+        response.data.response ||
+        response.data.reply ||
+        response.data
     });
 
-    res.json({ reply: response.data.response || response.data.reply || response.data });
   } catch (error: any) {
     console.error('Proxy Error:', error.message);
     res.status(500).json({ error: 'Bible AI service error' });
