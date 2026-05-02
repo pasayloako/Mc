@@ -1,10 +1,9 @@
 {
   "name": "bible-ai-backend",
-  "type": "commonjs",  // <-- Add this line
+  "type": "commonjs",
   "scripts": {
     "dev": "ts-node server.ts",
     "build": "tsc",
     "start": "node server.js"
   },
-  // ... rest of your deps
 }
