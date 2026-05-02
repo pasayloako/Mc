@@ -77,4 +77,14 @@
                 const data = await res.json();
                 addMessage(data.reply || 'No reply.');
             } catch (error) {
-                console.error(err
+                console.error(error);
+                addMessage('Error: Check console.');
+            } finally {
+                sendBtn.disabled = false;
+                sendBtn.textContent = 'Send';
+                promptEl.focus();
+            }
+        }
+    </script>
+</body>
+</html>
